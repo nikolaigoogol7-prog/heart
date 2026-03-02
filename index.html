@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Endless Text Heart (Smooth)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <title>Endless Text Heart (Mobile Smooth)</title>
   <style>
-    html, body { margin:0; height:100%; background:#000; overflow:hidden; }
+    html, body { margin:0; height:100%; background:#000; overflow:hidden; touch-action:manipulation; }
     canvas { display:block; width:100vw; height:100vh; }
   </style>
 </head>
@@ -15,64 +15,56 @@
 <script>
 (() => {
   const canvas = document.getElementById("c");
-  const ctx = canvas.getContext("2d", { alpha: false });
+  const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
 
-  //  SETTINGS
+  // SETTINGS
   let PHRASE = "I love you";
   const BG = "#000";
   const TEXT_COLOR = "rgba(255, 170, 230, 0.98)";
   const GLOW_COLOR = "rgba(255, 120, 210, 0.95)";
-
-  const CHECK_DPR_MAX = 2;      
   const FONT_FAMILY = "Arial, sans-serif";
-  const BASE_FONT = 18;         
-  const SPACING_PX = 28;        
-  const SPEED = 0.75;           
-  const PULSE = 0.045;          
-  const PULSE_SPEED = 0.03;     
-  const HEART_SAMPLES = 1800;   
-  const LUT_STEP = 0.20;        
 
-  
+  // Mobile performance knobs
+  const DPR_CAP = 1.5;         
+  const TARGET_FPS = 60;        
+  const MAX_STAMPS_CAP = 240;  
+  const MIN_STAMPS_CAP = 90;    
+  const SPACING_BASE = 30;     
+
+  // Heart shape sampling
+  const HEART_SAMPLES = 1600;
+  const LUT_STEP = 0.22;
+
+  // Motion
+  const SPEED = 0.9;            
+  const PULSE = 0.035;
+  const PULSE_SPEED = 0.0028;   
+
+  // STATE 
   let W = 0, H = 0, dpr = 1;
-  let sprite = null;
-  let spriteW = 0, spriteH = 0;
+  let sprite = null, spriteW = 0, spriteH = 0;
 
-  
   let lut = [];
   let lutCount = 0;
 
-  function resize() {
-    dpr = Math.max(1, Math.min(CHECK_DPR_MAX, window.devicePixelRatio || 1));
-    W = Math.floor(window.innerWidth);
-    H = Math.floor(window.innerHeight);
+ 
+  let stampsCap = MAX_STAMPS_CAP;  
+  let smoothedFps = 60;
 
-    canvas.width = Math.floor(W * dpr);
-    canvas.height = Math.floor(H * dpr);
-    canvas.style.width = W + "px";
-    canvas.style.height = H + "px";
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    buildSprite();    
-    buildHeartLUT();  
-  }
-
-  
+  //  Heart math 
   function heartPoint(t) {
     const x = 16 * Math.pow(Math.sin(t), 3);
     const y = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t);
-    return { x, y }; // x ~ [-16..16], y ~ [-17..13]
+    return { x, y };
   }
 
   function buildHeartLUT() {
-   
     const pts = [];
     for (let i = 0; i <= HEART_SAMPLES; i++) {
       const t = (i / HEART_SAMPLES) * Math.PI * 2;
       pts.push(heartPoint(t));
     }
 
-    
     lut = [];
     let acc = 0;
     lut.push({ x: pts[0].x, y: pts[0].y });
@@ -81,7 +73,7 @@
       const a = pts[i-1], b = pts[i];
       const dx = b.x - a.x, dy = b.y - a.y;
       const seg = Math.hypot(dx, dy);
-      if (seg <= 1e-6) continue;
+      if (seg < 1e-6) continue;
 
       let t = 0;
       while (t < seg) {
@@ -97,37 +89,33 @@
         }
       }
     }
-
     lutCount = lut.length;
   }
 
   function buildSprite() {
-   
     const minSide = Math.min(W, H);
-    const fontSize = Math.max(12, Math.floor(BASE_FONT * (minSide / 700)));
+    const fontSize = Math.max(12, Math.floor(18 * (minSide / 700)));
 
-    
     const off = document.createElement("canvas");
     const octx = off.getContext("2d");
 
     octx.font = `bold ${fontSize}px ${FONT_FAMILY}`;
-    const metrics = octx.measureText(PHRASE);
+    const m = octx.measureText(PHRASE);
     const pad = Math.ceil(fontSize * 1.2);
 
-    spriteW = Math.ceil(metrics.width + pad * 2);
+    spriteW = Math.ceil(m.width + pad * 2);
     spriteH = Math.ceil(fontSize + pad * 2);
-
     off.width = spriteW;
     off.height = spriteH;
 
-    
     octx.clearRect(0, 0, spriteW, spriteH);
     octx.font = `bold ${fontSize}px ${FONT_FAMILY}`;
     octx.textAlign = "center";
     octx.textBaseline = "middle";
 
+  
     octx.shadowColor = GLOW_COLOR;
-    octx.shadowBlur = Math.max(8, Math.floor(fontSize * 1.3));
+    octx.shadowBlur = Math.max(8, Math.floor(fontSize * 1.25));
     octx.fillStyle = TEXT_COLOR;
     octx.fillText(PHRASE, spriteW / 2, spriteH / 2);
 
@@ -139,7 +127,25 @@
     sprite = off;
   }
 
-  
+  function resize() {
+    dpr = Math.max(1, Math.min(DPR_CAP, window.devicePixelRatio || 1));
+    W = Math.floor(window.innerWidth);
+    H = Math.floor(window.innerHeight);
+
+    canvas.width = Math.floor(W * dpr);
+    canvas.height = Math.floor(H * dpr);
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    buildHeartLUT();
+    buildSprite();
+  }
+
+  window.addEventListener("resize", resize, { passive: true });
+  resize();
+
+  // Tap to change phrase
   window.addEventListener("click", () => {
     const p = prompt("Phrase:", PHRASE);
     if (p && p.trim()) {
@@ -148,22 +154,34 @@
     }
   });
 
-  window.addEventListener("resize", resize);
-  resize();
+  document.addEventListener("touchmove", (e) => e.preventDefault(), { passive: false });
 
-  let time = 0;
+  
+  let lastMs = performance.now();
+  let drift = 0;
+  let pulseT = 0;
 
-  function frame() {
-    time += 1;
+  function loop(nowMs) {
+    const dt = Math.min(50, nowMs - lastMs); 
+    lastMs = nowMs;
 
-   
+    const fps = 1000 / Math.max(1, dt);
+    smoothedFps = smoothedFps * 0.92 + fps * 0.08;
+
+    
+    if (smoothedFps < 52 && stampsCap > MIN_STAMPS_CAP) stampsCap -= 6;
+    else if (smoothedFps > 58 && stampsCap < MAX_STAMPS_CAP) stampsCap += 3;
+
+    
     ctx.fillStyle = BG;
     ctx.fillRect(0, 0, W, H);
 
-   
+    
     const minSide = Math.min(W, H);
     const baseScale = (minSide / 40);
-    const pulse = 1 + PULSE * Math.sin(time * PULSE_SPEED);
+
+    pulseT += dt;
+    const pulse = 1 + PULSE * Math.sin(pulseT * PULSE_SPEED);
     const scale = baseScale * pulse;
 
     const cx = W * 0.5;
@@ -171,11 +189,15 @@
 
     
     const stepPx = LUT_STEP * scale;
-    const skip = Math.max(1, Math.round(SPACING_PX / stepPx));
-    const count = Math.floor(lutCount / skip);
+    const spacingPx = SPACING_BASE * (minSide < 500 ? 1.15 : 1.0); 
+    const skip = Math.max(1, Math.round(spacingPx / stepPx));
+    let count = Math.floor(lutCount / skip);
 
-    
-    const shift = Math.floor((time * SPEED) % lutCount);
+   
+    if (count > stampsCap) count = stampsCap;
+
+    drift += (dt * 0.001) * SPEED;    
+    const shift = (Math.floor(drift * 120) % lutCount + lutCount) % lutCount;
 
     
     for (let i = 0; i < count; i++) {
@@ -185,23 +207,13 @@
       const x = cx + p.x * scale;
       const y = cy - p.y * scale;
 
-      
       ctx.drawImage(sprite, x - spriteW / 2, y - spriteH / 2);
     }
 
-    
-    ctx.save();
-    ctx.globalAlpha = 0.22;
-    ctx.beginPath();
-    ctx.fillStyle = "rgba(255,160,230,0.25)";
-    ctx.ellipse(cx, cy - scale * 2.0, scale * 1.1, scale * 0.7, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-
-    requestAnimationFrame(frame);
+    requestAnimationFrame(loop);
   }
 
-  requestAnimationFrame(frame);
+  requestAnimationFrame(loop);
 })();
 </script>
 </body>
